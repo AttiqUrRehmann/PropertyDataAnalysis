@@ -29,6 +29,8 @@ By the end of this process, we will have a **clean and structured dataset** read
 library(tidyverse)
 library(lubridate)
 library(tidygeocoder)
+library(ozmaps)
+library(sf)
 ```
 
 ---
@@ -60,18 +62,6 @@ canberra_sold_houses <- bind_rows(sold_houses_remaining,
 ---
 
 # Data cleaning
-
-## Adding Latitude and Longitude
-
-We need to add the latitude and longitude of each house because they are useful for spatial analysis, making both visualization and prediction better. With these coordinates, we can find the nearest schools, markets, universities, sports grounds, and bus stops. This matters because property prices are often higher for homes close to markets and other important places.
-
-```{r eval=FALSE}
-canberra_sold_houses <- canberra_sold_houses %>%
-  filter(!is.na(full_address)) %>%  # Remove rows with missing addresses
-  geocode(full_address, method = 'osm',
-          lat = latitude, long = longitude)
-```
-
 
 ```{r}
 # Convert 'sold_date' column to Date format
@@ -269,6 +259,73 @@ canberra_sold_houses %>%
 ```
 
 
+## Adding Latitude and Longitude
+
+We need to add the latitude and longitude of each house because they are useful for spatial analysis, making both visualization and prediction better. With these coordinates, we can find the nearest schools, markets, universities, sports grounds, and bus stops. This matters because property prices are often higher for homes close to markets and other important places.
+
+I am not going to run this code here as it takes long time.
+I have save the data and I will import it again here.
+
+```{r eval=FALSE}
+clean_data <- canberra_sold_houses %>%
+  filter(!type_of_property %in% c("other", "rural land") & beds %in% 1:7)
+
+
+# Initialize an empty dataframe to store results
+geocoded_results <- data.frame()
+
+# Define batch size
+batch_size <- 1000
+num_batches <- ceiling(nrow(clean_data) / batch_size)
+
+# Loop through batches
+for (i in 1:num_batches) {
+  # Define start and end index for each batch
+  start_index <- ((i - 1) * batch_size) + 1
+  end_index <- min(i * batch_size, nrow(clean_data))  # Ensure it doesn’t exceed data size
+  
+  # Select the batch
+  batch <- clean_data %>%
+    slice(start_index:end_index) %>%
+    filter(!is.na(full_address))  # Remove rows with missing addresses
+  
+  # Retry mechanism for each batch
+  success <- FALSE
+  while (!success) {
+    try({
+      geocoded_batch <- batch %>%
+        geocode(full_address, method = 'arcgis',
+                lat = latitude, long = longitude)
+      
+      # Append successfully geocoded batch to results
+      geocoded_results <- bind_rows(geocoded_results, geocoded_batch)
+      
+      # Print progress
+      print(paste("Batch", i, "successfully processed"))
+      
+      # If no error occurs, mark success as TRUE
+      success <- TRUE
+      
+    }, silent = TRUE)
+    
+    if (!success) {
+      print(paste("Retrying batch", i, "..."))
+      Sys.sleep(5)  # Wait for 5 seconds before retrying (optional)
+    }
+  }
+}
+
+
+clean_data <- geocoded_results
+
+```
+
+
+```{r}
+clean_data <- read.csv("../Data cleaning/clean_data.csv", header = TRUE)
+```
+
+
 ---
 
 ## Exploration 
@@ -277,8 +334,7 @@ canberra_sold_houses %>%
 The price distribution for all property types shows some values that stand out from the bulk, which may seem unusual. However, I have verified these observations with other real estate websites, and they are indeed real. This could be due to factors such as location, larger land size, or other property features. We will explore this further in the analysis.
 
 ```{r}
-canberra_sold_houses %>%
-  filter(!type_of_property %in% c("other", "rural land") & beds %in% 1:7) %>%
+clean_data %>%
   ggplot(aes(x = price)) +
   geom_histogram() +  # Set bin width and colors
   labs(
@@ -298,8 +354,7 @@ canberra_sold_houses %>%
 - **Recent Drop in 2025:** Sales count is currently **243**, which is much lower than previous years, suggesting that **data collection for this year may still be incomplete**.
 
 ```{r}
-canberra_sold_houses %>%
-  filter(!type_of_property %in% c("other", "rural land") & beds %in% 1:7) %>%
+clean_data %>%
   mutate(sale_year = year(sold_date)) %>%  # Extract year from 'sold_date'
   group_by(sale_year) %>%
   summarise(total_sales = n(), .groups = "drop") %>%  # Count number of sales per year
@@ -315,21 +370,237 @@ canberra_sold_houses %>%
   theme(legend.position = "none")
 ```
 
+
 ## Bivariate Anaylsis
+
+I want to check property prices by number of bedrooms, baths, and garages for just the latest year not all the years.
+
+```{r}
+latest_year <- max(year(clean_data$sold_date), na.rm = TRUE)
+
+clean_data %>%
+  ggplot(aes(x = factor(beds), y = price)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  labs(
+    title = paste("Property Prices by Bedrooms in", latest_year),
+    x = "Number of Bedrooms",
+    y = "Price (AUD)"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 12))
+```
+
+```{r}
+latest_year <- max(year(clean_data$sold_date), na.rm = TRUE)
+
+clean_data %>%
+  ggplot(aes(x = factor(baths), y = price)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  labs(
+    title = paste("Property Prices by Baths in", latest_year),
+    x = "Number of Baths",
+    y = "Price (AUD)"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 12))
+```
+
+```{r}
+latest_year <- max(year(clean_data$sold_date), na.rm = TRUE)
+
+clean_data %>%
+  ggplot(aes(x = factor(garage), y = price)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  labs(
+    title = paste("Property Prices by garages in", latest_year),
+    x = "Number of garages",
+    y = "Price (AUD)"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 12))
+```
 
 
 ### Correlation Between land size and price
 
 ```{r}
-canberra_sold_houses %>%
-  filter(!type_of_property %in% c("other", "rural land") & beds %in% 1:7) %>%
-  ggplot(aes(x = price, y = land_size)) +
-  geom_point(alpha = 0.6, color = "blue") +  # Add transparency and color
+clean_data %>% 
+  filter(type_of_property == "house") %>%
+  filter(land_size < 2000) %>%
+  mutate(sale_year = year(sold_date)) %>%  # Extract year from sold_date
+  ggplot(aes(x = land_size, y = price, col = as.factor(sale_year))) +
+  geom_point(alpha = .6, size = .1) +  # Add transparency
+  #scale_x_continuous(labels = comma_format()) +  # Format land size in thousands
+  #scale_y_continuous(labels = dollar_format(prefix = "$")) +  # Format price in dollars
   labs(
-    title = "Scatter Plot of Land Size vs. Price",
+    title = "Scatter Plot of Land Size vs. Price (Houses Only)",
     x = "Land Size (sqm)",
-    y = "Price ($AUD)"
+    y = "Price (AUD)",
+    color = "Year Sold"  # Label for color legend
   ) +
   theme_minimal()
+  
+```
+
+
+
+## Relationship between price and litude and longitute
+
+```{r}
+clean_data %>% filter(latitude < -35) %>%
+    mutate(sale_year = year(sold_date)) %>%  # Extract year from sold_date
+    ggplot(aes(x = latitude, y = price)) +
+    geom_point(alpha = .6, size = .1) +
+  geom_smooth() +
+  theme_minimal()
+```
+
+```{r}
+clean_data %>% 
+  filter(longitude > 100) %>%
+  mutate(sale_year = year(sold_date)) %>%  # Extract year from sold_date
+  ggplot(aes(x = longitude, y = price)) +
+  geom_point(alpha = .6, size = .1) +
+  theme_minimal()
+```
+
+
+## Fitting model 
+
+```{r}
+# Load your cleaned dataset (assuming it's stored as 'real_estate_data')
+df <- read.csv("clean_data.csv") %>%
+  select(beds, baths, garage,
+         type_of_property,
+         latitude, longitude,
+         price, sold_date) %>%
+  mutate(type_of_property = as.factor(type_of_property),
+         sale_year = as.factor(year(sold_date))) %>%
+  select(-c(sold_date))
+
+# Convert categorical variables (if any) to factors
+#df$property_type <- as.factor(df$property_type)  # Example
+
+# Split data into training and testing sets
+set.seed(123)  # For reproducibility
+train_index <- sample(1:nrow(df), 0.8 * nrow(df))  # 80% train, 20% test
+train_data <- df[train_index, ]
+test_data <- df[-train_index, ]
+
+# Fit a Random Forest model
+rf_model <- randomForest(price ~ ., data=train_data, ntree=500, mtry=3, importance=TRUE)
+
+# Print model summary
+print(rf_model)
+
+# Make predictions
+predictions <- predict(rf_model, test_data)
+
+# Evaluate performance
+mse <- mean((test_data$price - predictions)^2)  # Mean Squared Error
+rmse <- sqrt(mse)  # Root Mean Squared Error
+cat("RMSE:", rmse, "\n")
+
+# Feature importance
+importance(rf_model)
+varImpPlot(rf_model)
+
+
+
+df_pred <- data.frame(
+  beds = as.integer(4),
+  baths = as.integer(2),
+  garage = as.integer(2),
+  type_of_property = factor("house", levels = levels(df$type_of_property)),  # Match levels
+  latitude = -35.15838,
+  longitude = 149.148,
+  sale_year = factor("2023", levels = levels(df$sale_year))
+)
+
+# Make prediction
+predicted_price <- predict(rf_model, df_pred, predict.all = TRUE)
+print(predicted_price)
+
+
+mean_preds <- rowMeans(predicted_price$individual)
+sd_preds <- apply(predicted_price$individual, 1, sd)
+
+# Compute 95% prediction interval
+lower_bound <- mean_preds - 1.96 * sd_preds
+upper_bound <- mean_preds + 1.96 * sd_preds
+```
+
+
+### Tuning model
+
+```{r eval=FALSE}
+# Load necessary packages
+library(caret)
+library(randomForest)
+
+# Define the tuning grid for both `mtry` and `ntree`
+tune_grid <- expand.grid(mtry = c(2, 4, 6, 9, 11),  # Number of variables at each split
+                         ntree = c(100, 250, 500, 750, 900))  # Number of trees
+
+# Set up cross-validation
+control <- trainControl(method = "cv", number = 5)  # 5-fold cross-validation
+
+# Train the Random Forest model while tuning `mtry` and `ntree`
+rf_tuned <- train(price ~ ., 
+                  data = train_data, 
+                  method = "rf", 
+                  trControl = control, 
+                  tuneGrid = tune_grid, 
+                  importance = TRUE)
+
+# Print best parameters
+print(rf_tuned$bestTune)
+
+# Plot the tuning results
+plot(rf_tuned)
+
+```
+
+
+### Spatial ploting
+
+```{r}
+
+# Step 1: Get ACT Map
+act_map <- ozmap_data("states") %>% 
+  filter(NAME == "Australian Capital Territory")
+
+each_year_data <- clean_data %>%
+  mutate(sale_year = year(sold_date)) %>%
+  filter(sale_year == 2024) %>%
+  filter(type_of_property == "house")
+
+# Ensure clean_data is loaded and contains longitude, latitude, and price columns
+# Example: clean_data <- read.csv("your_data.csv")
+
+# Step 2: Convert price_data to an sf object for mapping
+# Ensure clean_data has columns: longitude, latitude, and price
+price_sf <- st_as_sf(each_year_data, coords = c("longitude", "latitude"), crs = 4326)
+
+# Ensure act_map and price_sf are in the same CRS
+act_map <- st_transform(act_map, crs = st_crs(price_sf))
+
+# Create a grid over the ACT map
+grid <- st_make_grid(act_map, cellsize = 0.02) %>%  # Adjust cellsize as needed
+  st_sf() %>%
+  st_intersection(act_map)  # Clip grid to ACT boundaries
+
+# Aggregate price data into the grid
+price_grid <- st_join(grid, price_sf) %>%
+  group_by(geometry) %>%
+  summarise(avg_price = mean(price, na.rm = TRUE))  # Calculate average price per grid cell
+
+# Plot the heatmap
+ggplot() +
+  geom_sf(data = act_map, fill = "lightblue", color = "black") +  # Map of ACT
+  geom_sf(data = price_grid, aes(fill = avg_price), color = NA) +  # Heatmap layer
+  scale_fill_gradient(low = "yellow", high = "red", name = "Price") +  # Color gradient
+  theme_minimal()
+
 ```
 
