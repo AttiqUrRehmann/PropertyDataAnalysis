@@ -31,6 +31,8 @@ library(lubridate)
 library(tidygeocoder)
 library(ozmaps)
 library(sf)
+library(randomForest)
+
 ```
 
 ---
@@ -488,7 +490,7 @@ train_data <- df[train_index, ]
 test_data <- df[-train_index, ]
 
 # Fit a Random Forest model
-rf_model <- randomForest(price ~ ., data=train_data, ntree=500, mtry=3, importance=TRUE)
+rf_model <- randomForest(price ~ ., data=df, ntree=500, mtry=3, importance=TRUE)
 
 # Print model summary
 print(rf_model)
@@ -519,7 +521,6 @@ df_pred <- data.frame(
 
 # Make prediction
 predicted_price <- predict(rf_model, df_pred, predict.all = TRUE)
-print(predicted_price)
 
 
 mean_preds <- rowMeans(predicted_price$individual)
