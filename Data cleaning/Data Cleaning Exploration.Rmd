@@ -448,6 +448,8 @@ clean_data %>%
 
 ## Relationship between price and litude and longitute
 
+The relationship between price and latitude reveals an interesting pattern—prices tend to increase in the middle, while remaining similar on both ends. This suggests the presence of a high-priced area. In contrast, price variations with longitude are less pronounced, which makes sense given that the ACT extends more in the north-south direction than east-west.
+
 ```{r}
 clean_data %>% filter(latitude < -35) %>%
     mutate(sale_year = year(sold_date)) %>%  # Extract year from sold_date
@@ -463,11 +465,18 @@ clean_data %>%
   mutate(sale_year = year(sold_date)) %>%  # Extract year from sold_date
   ggplot(aes(x = longitude, y = price)) +
   geom_point(alpha = .6, size = .1) +
+  geom_smooth() +
   theme_minimal()
 ```
 
 
 ## Fitting model 
+
+We are now fitting the model while excluding land size variables, as they represent the entire block area for apartments rather than individual units. The dataset includes latitude, longitude, and outliers, and there is a non-linear relationship between price and both latitude and longitude. Because of this, a linear regression model would not be appropriate.
+
+Instead, I used a Random Forest model, as it effectively captures non-linear relationships, handles outliers, and allows latitude and longitude to be used as predictors.
+
+The importance of variable can be seen in the below plot:
 
 ```{r}
 # Load your cleaned dataset (assuming it's stored as 'real_estate_data')
@@ -484,13 +493,13 @@ df <- read.csv("clean_data.csv") %>%
 #df$property_type <- as.factor(df$property_type)  # Example
 
 # Split data into training and testing sets
-set.seed(123)  # For reproducibility
-train_index <- sample(1:nrow(df), 0.8 * nrow(df))  # 80% train, 20% test
-train_data <- df[train_index, ]
-test_data <- df[-train_index, ]
+# set.seed(123)  # For reproducibility
+# train_index <- sample(1:nrow(df), 0.8 * nrow(df))  # 80% train, 20% test
+# train_data <- df[train_index, ]
+# test_data <- df[-train_index, ]
 
 # Fit a Random Forest model
-rf_model <- randomForest(price ~ ., data=df, ntree=500, mtry=3, importance=TRUE)
+rf_model <- randomForest(price ~ ., data=df, ntree=500, mtry=3, importance=TRUE, keep.inbag = TRUE)
 
 # Print model summary
 print(rf_model)
@@ -503,33 +512,123 @@ mse <- mean((test_data$price - predictions)^2)  # Mean Squared Error
 rmse <- sqrt(mse)  # Root Mean Squared Error
 cat("RMSE:", rmse, "\n")
 
-# Feature importance
-importance(rf_model)
 varImpPlot(rf_model)
 
-
-
-df_pred <- data.frame(
-  beds = as.integer(4),
-  baths = as.integer(2),
-  garage = as.integer(2),
-  type_of_property = factor("house", levels = levels(df$type_of_property)),  # Match levels
-  latitude = -35.15838,
-  longitude = 149.148,
-  sale_year = factor("2023", levels = levels(df$sale_year))
-)
-
-# Make prediction
-predicted_price <- predict(rf_model, df_pred, predict.all = TRUE)
-
-
-mean_preds <- rowMeans(predicted_price$individual)
-sd_preds <- apply(predicted_price$individual, 1, sd)
-
-# Compute 95% prediction interval
-lower_bound <- mean_preds - 1.96 * sd_preds
-upper_bound <- mean_preds + 1.96 * sd_preds
 ```
+
+The model fits the data well as we have variance explained more than 80%
+
+```{r}
+rf_model
+```
+
+
+
+### Prediction
+
+```{r}
+df <- df %>%
+  mutate(suburb = clean_data$suburb)
+
+# Convert `type_of_property` to a factor (ensure levels match training data)
+df$type_of_property <- as.factor(df$type_of_property)
+
+# Extract unique latitude and longitude for each suburb
+suburb_coords <- df %>%
+  group_by(suburb) %>%
+  summarize(latitude = mean(latitude, na.rm = TRUE),
+            longitude = mean(longitude, na.rm = TRUE))
+
+# Function to generate predictions for a given input
+predict_price <- function(suburb, beds, baths, garage, type_of_property) {
+  # Ensure type_of_property matches factor levels
+  type_of_property <- factor(type_of_property, levels = levels(df$type_of_property))
+  
+  # Get latitude and longitude for the given suburb
+  suburb_info <- suburb_coords %>% filter(suburb == !!suburb)
+  
+  if (nrow(suburb_info) == 0) {
+    stop("Suburb not found in dataset.")
+  }
+  
+  # Generate a data frame for sold years 2007-2025
+  df_pred <- data.frame(
+    beds = as.integer(beds),
+    baths = as.integer(baths),
+    garage = as.integer(garage),
+    type_of_property = type_of_property,
+    latitude = suburb_info$latitude,
+    longitude = suburb_info$longitude,
+    sale_year = factor(2007:2025, levels = levels(df$sale_year))  # Ensure factor levels match
+  )
+  
+  # Predict prices
+  df_pred$predicted_price <- predict(rf_model, df_pred)
+  
+  return(df_pred)
+}
+
+suburbs <- c("Cook", "Belconnen", "Fraser", "Macgregor", "City", "Weston Creek")
+
+# Initialize an empty list to store results
+all_results <- list()
+
+# Loop through each suburb
+for (s in suburbs) {
+  all_results[[s]] <- predict_price(suburb = s,
+                                    beds = 3, baths = 2,
+                                    garage = 1,
+                                    type_of_property = "house")
+}
+
+# Combine results into a single dataframe
+final_result <- bind_rows(all_results, .id = "suburb")
+
+
+final_result <- final_result %>%
+  mutate(sale_year = as.Date(paste0(as.character(sale_year), "-01-01")))
+
+
+# Plot with multiple lines for each suburb
+ggplot(final_result, aes(x = sale_year, y = predicted_price, color = suburb)) +
+  geom_line(size = .3) +  # Line thickness
+  labs(title = "Predicted Price Trends by Suburb",
+       x = "Year",
+       y = "Predicted Price",
+       color = "Suburb") +  # Legend label
+  theme_minimal()
+```
+
+
+```{r}
+clean_data %>% 
+  mutate(sale_year = year(sold_date)) %>%
+  filter(price < 4000000) %>%
+ggplot(aes(x = sale_year, y = price, color = full_address)) +
+  geom_line(size = 0.3) +  # Line thickness
+  labs(title = "Predicted Price Trends by Suburb",
+       x = "Year",
+       y = "Price") +  # Removed legend label
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+```{r}
+clean_data %>% 
+  mutate(sale_year = year(sold_date)) %>%
+  filter(price < 4000000) %>%
+  filter(!type_of_property == "residential land") %>%
+  group_by(sale_year, suburb) %>%
+  summarise(mean_price = mean(price, na.rm = TRUE)) %>%
+  ggplot(aes(x = sale_year, y = mean_price, color = suburb)) +
+  geom_line(size = 0.3) +  # Line thickness
+  labs(title = "Predicted Price Trends by Year",
+       x = "Year",
+       y = "Average Price") +  
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
 
 
 ### Tuning model
