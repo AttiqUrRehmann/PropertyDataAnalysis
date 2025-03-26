@@ -90,3 +90,24 @@ data_extracted = getting_data(['Weston Creek'], [2611], 'ACT')
 df  = pd.DataFrame(data_extracted)
 df
 
+def clean_data(df):
+    date = []
+    for i in df['Sold Date']:
+        date.append( {
+        'Sold date': i.replace('Sold on ','') \
+            .strip() \
+                .replace(' ', '-')
+                })
+    
+    price = []
+    for i in df['Price']:
+        
+        rm = i.replace('$', '') \
+            .replace(',', '')
+        price.append ({
+            'Price': int(rm) if i != 'N/A' else 'N/A'
+            })
+        
+    pass
+
+    
