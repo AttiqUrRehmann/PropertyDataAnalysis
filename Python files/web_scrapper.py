@@ -32,6 +32,7 @@ def making_url(suburb, postal_code, page_number, state):
         url = f'{base_url}list/{state}/{postal_code}/{suburb}/{page_number}/'
     return url 
 
+
 def getting_data(suburb, postal_code, state):
     """
     Give resulting data in a dictionary that can easily be converted to pandas data frame.
@@ -79,35 +80,16 @@ def getting_data(suburb, postal_code, state):
                 if temp != None:
                     data = utils.data_extractor(temp)
                     sold_houses_data.extend(data)
+    
+    df = pd.DataFrame(sold_houses_data)
 
-    return sold_houses_data
+    df = utils.clean_data(df)
+
+    return df
                     
 
 
 
 data_extracted = getting_data(['Weston Creek'], [2611], 'ACT')
 
-df  = pd.DataFrame(data_extracted)
-df
-
-def clean_data(df):
-    date = []
-    for i in df['Sold Date']:
-        date.append( {
-        'Sold date': i.replace('Sold on ','') \
-            .strip() \
-                .replace(' ', '-')
-                })
-    
-    price = []
-    for i in df['Price']:
-        
-        rm = i.replace('$', '') \
-            .replace(',', '')
-        price.append ({
-            'Price': int(rm) if i != 'N/A' else 'N/A'
-            })
-        
-    pass
-
-    
+data_extracted

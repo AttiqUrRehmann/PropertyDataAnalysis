@@ -1,6 +1,45 @@
 from bs4 import BeautifulSoup
 from re import compile
+from geopy.geocoders import ArcGIS
+import pandas as pd
 
+def clean_data(df):
+    date = []
+    for i in df['Sold Date']:
+        date.append( 
+            i.replace('Sold on ','') \
+            .strip() \
+                .replace(' ', '-')
+                )
+    
+    price = []
+    for i in df['Price']:
+        
+        rm = i.replace('$', '') \
+            .replace(',', '')
+        price.append (
+            int(rm) if i != 'N/A' else 'N/A'
+            )
+    
+    # Getting latitude and longitude of the houses
+    latitude, longitude = [], []
+    geolocator_arcgis = ArcGIS()
+    for i in df['Address']:
+
+        getloc = geolocator_arcgis.geocode(i)
+        
+        latitude.append(
+            getloc.latitude
+        )
+        longitude.append(
+            getloc.longitude
+        )
+    df[['Sold Date', 'Price', 'Latitude', 'Longitude']] = pd.DataFrame(
+        list(zip(date, price, latitude, longitude)),
+    columns=['Sold Date', 'Price', 'Latitude', 'Longitude']
+    )
+    df['Sold Date'] = pd.to_datetime(df['Sold Date'])
+    return df
 
 
 def data_extractor(temp):
