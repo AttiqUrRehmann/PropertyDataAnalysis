@@ -18,7 +18,7 @@ def clean_data(df):
         rm = i.replace('$', '') \
             .replace(',', '')
         price.append (
-            int(rm) if i != 'N/A' else 'N/A'
+            int(rm) if i != pd.NA else pd.NA
             )
     
     # Getting latitude and longitude of the houses
@@ -55,45 +55,52 @@ def data_extractor(temp):
 
     listings = BeautifulSoup(temp.text, 'html.parser')
     addresses = [tag.text.strip() for tag in listings.select('a > h4')]
+    property_types = [property.text for property in listings.find_all('div', class_ = 'easy-block-v1-badge')]
 
     ul = listings.find_all('ul', class_ = 'list-unstyled')
 
 
     houses_data = []
-    for address, i in zip(addresses, ul):
+    for address, i, property_type in zip(addresses, ul, property_types):
 
         try:
-            sold_date = i.find_all('li')[0].find(string = compile('Sold')).text
+            sold_date = i.find_all('li')[0] \
+                .find(string = compile('Sold')) \
+                    .text
         except:
-            sold_date = 'N/A'
+            sold_date = pd.NA
 
         try: 
-           price =  i.find_all('code')[0].find(string = compile('$')).text
+           price =  i.find_all('code')[0] \
+            .find(string = compile('$')) \
+                .text
         except:
-            price = 'N/A'
+            price = pd.NA
 
         try: 
-            beds = i.find('i', class_ = 'i-bed').find_next('big').text
+            beds = i.find('i', class_ = 'i-bed') \
+                .find_next('big') \
+                    .text
         except:
-            beds = 'N/A'
+            beds = pd.NA
         
         try: 
             bath_tag = i.find('i', class_ = 'i-bath')
             if bath_tag:
                 baths = bath_tag.nextSibling
             else:
-                baths = 'N/A'
+                baths = pd.NA
         except:
-            baths = 'N/A'
+            baths = pd.NA
 
         try: 
             garage_tag = i.find('i', class_ = 'i-car')
             if garage_tag:
                 garages = garage_tag.nextSibling
             else:
-                garages = 'N/A'
+                garages = pd.NA
         except:
-            garages = 'N/A'
+            garages = pd.NA
         
         houses_data.append({
             'Address': address,
@@ -101,7 +108,8 @@ def data_extractor(temp):
             'Price': price,
             'Beds': beds,
             'Baths': baths,
-            'Garages': garages
+            'Garages': garages,
+            'Property Type': property_type
         })
 
     return houses_data

@@ -86,10 +86,19 @@ def getting_data(suburb, postal_code, state):
     df = utils.clean_data(df)
 
     return df
-                    
-
-
 
 data_extracted = getting_data(['Weston Creek'], [2611], 'ACT')
 
 data_extracted
+
+data_extracted['Sold year'] = pd.DataFrame(data_extracted['Sold Date'].dt.year)
+
+data_extracted[['Beds', 'Baths', 'Garages', 'Price']] = data_extracted[['Beds', 'Baths', 'Garages', 'Price']].apply(
+    lambda col: pd.to_numeric(col, errors='coerce').astype('Int64')
+)
+
+# Fiting model random forest model
+
+
+
+
